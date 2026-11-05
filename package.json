@@ -27,7 +27,8 @@
     "vite": "^8.3.5"
   },
   "overrides": {
-    "@grpc/grpc-js": "^1.13.6"
+    "@grpc/grpc-js": "^1.13.6",
+    "jose": "5.10.0"
   },
   "allowScripts": {
     "@firebase/util@1.15.3": true,
