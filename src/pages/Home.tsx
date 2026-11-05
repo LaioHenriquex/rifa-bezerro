@@ -488,7 +488,7 @@ function Home() {
               <h3 style={{ marginTop: 10 }}>Chave PIX</h3>
 
               <p style={{ color: "#aaa", fontSize: 14 }}>
-                Dados fictícios para demonstração do sistema. Não realize pagamentos.
+                DADOS PARA PAGAMENTO.
               </p>
 
               <label style={{ display: "block", marginTop: 22 }}>
