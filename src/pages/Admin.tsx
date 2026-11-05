@@ -1,5 +1,4 @@
-
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import {
   doc,
@@ -13,7 +12,7 @@ import {
   setDoc
 } from "firebase/firestore";
 
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
 
 type StatusNumero = "disponivel" | "reservado" | "vendido";
 
@@ -30,6 +29,21 @@ type Configuracao = {
   quantidadeNumeros: number;
   prazoReserva: number;
   dataSorteio: string;
+};
+
+type StatusReserva = "pendente" | "confirmado" | "negado";
+
+type Reserva = {
+  id: string;
+  nome: string;
+  whatsapp: string;
+  numeros: number[];
+  quantidade: number;
+  valorTotal: number;
+  status: StatusReserva;
+  criadoEm?: {
+    toDate?: () => Date;
+  } | Date | null;
 };
 
 const configuracaoInicial: Configuracao = {
@@ -52,6 +66,11 @@ function Admin() {
 
   const [carregandoConfig, setCarregandoConfig] = useState(true);
   const [salvandoConfig, setSalvandoConfig] = useState(false);
+
+  const [reservas, setReservas] = useState<Reserva[]>([]);
+  const [carregandoReservas, setCarregandoReservas] = useState(true);
+  const [processandoReserva, setProcessandoReserva] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
 
   // Acompanha os números em tempo real
   useEffect(() => {
@@ -110,6 +129,44 @@ function Admin() {
         console.error("Erro ao carregar configurações:", erro);
         setMensagem("Erro ao carregar as configurações.");
         setCarregandoConfig(false);
+      }
+    );
+
+    return () => cancelar();
+  }, []);
+
+  // Acompanha as solicitações em tempo real
+  useEffect(() => {
+    const consulta = query(
+      collection(db, "reservas"),
+      orderBy("criadoEm", "desc")
+    );
+
+    const cancelar = onSnapshot(
+      consulta,
+      (snapshot) => {
+        const lista: Reserva[] = snapshot.docs.map((documento) => {
+          const dados = documento.data();
+
+          return {
+            id: documento.id,
+            nome: dados.nome ?? "",
+            whatsapp: dados.whatsapp ?? "",
+            numeros: Array.isArray(dados.numeros) ? dados.numeros : [],
+            quantidade: dados.quantidade ?? 0,
+            valorTotal: dados.valorTotal ?? 0,
+            status: dados.status ?? "pendente",
+            criadoEm: dados.criadoEm ?? null
+          };
+        });
+
+        setReservas(lista);
+        setCarregandoReservas(false);
+      },
+      (erro) => {
+        console.error("Erro ao carregar solicitações:", erro);
+        setMensagem("Erro ao carregar as solicitações.");
+        setCarregandoReservas(false);
       }
     );
 
@@ -244,6 +301,132 @@ function Admin() {
     }
   }
 
+  // Confirma, nega ou exclui uma solicitação pela API
+  async function processarSolicitacao(
+    reservaId: string,
+    acao: "confirmar" | "negar" | "excluir"
+  ) {
+    const reserva = reservas.find((item) => item.id === reservaId);
+
+    if (!reserva) {
+      setMensagem("Solicitação não encontrada.");
+      return;
+    }
+
+    if (
+      (acao === "confirmar" || acao === "negar") &&
+      reserva.status !== "pendente"
+    ) {
+      setMensagem("Esta solicitação já foi processada.");
+      return;
+    }
+
+    if (acao === "excluir" && reserva.status !== "confirmado") {
+      setMensagem("Somente solicitações confirmadas podem ser excluídas.");
+      return;
+    }
+
+    const confirmacao =
+      acao === "confirmar"
+        ? `Deseja confirmar a solicitação de ${reserva.nome}? Os números serão marcados como vendidos.`
+        : acao === "negar"
+          ? `Deseja negar a solicitação de ${reserva.nome}? Os números serão liberados novamente.`
+          : `Deseja excluir definitivamente a solicitação confirmada de ${reserva.nome}? Os números continuarão vendidos.`;
+
+    if (!window.confirm(confirmacao)) return;
+
+    try {
+      setProcessandoReserva(reservaId);
+      setMensagem("");
+
+      const usuario = auth.currentUser;
+
+      if (!usuario) {
+        throw new Error("Sua sessão expirou. Entre novamente no painel.");
+      }
+
+      const token = await usuario.getIdToken();
+
+      const resposta = await fetch("/api/reservas", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          acao,
+          reservaId
+        })
+      });
+
+      const resultado = await resposta.json();
+
+      if (!resposta.ok) {
+        throw new Error(
+          resultado.erro || "Não foi possível processar a solicitação."
+        );
+      }
+
+      setMensagem(
+        acao === "confirmar"
+          ? "Solicitação confirmada com sucesso!"
+          : acao === "negar"
+            ? "Solicitação negada e números liberados!"
+            : "Solicitação confirmada excluída com sucesso!"
+      );
+    } catch (erro) {
+      console.error("Erro ao processar solicitação:", erro);
+
+      setMensagem(
+        erro instanceof Error
+          ? erro.message
+          : "Erro ao processar a solicitação."
+      );
+    } finally {
+      setProcessandoReserva(null);
+    }
+  }
+
+  // Formata a data da solicitação
+  function formatarData(data: Reserva["criadoEm"]) {
+    if (!data) return "Data não disponível";
+
+    let dataConvertida: Date;
+
+    if (data instanceof Date) {
+      dataConvertida = data;
+    } else if (typeof data.toDate === "function") {
+      dataConvertida = data.toDate();
+    } else {
+      return "Data não disponível";
+    }
+
+    return dataConvertida.toLocaleString("pt-BR");
+  }
+
+  // Pesquisa por nome, WhatsApp ou número
+  const reservasFiltradas = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+
+    if (!termo) return reservas;
+
+    const termoNumerico = termo.replace(/\D/g, "");
+
+    return reservas.filter((reserva) => {
+      const nomeEncontrado = reserva.nome.toLowerCase().includes(termo);
+
+      const whatsappEncontrado = reserva.whatsapp
+        .replace(/\D/g, "")
+        .includes(termoNumerico);
+
+      const numeroEncontrado = reserva.numeros.some((numero) =>
+        String(numero).padStart(3, "0").includes(termo)
+      );
+
+      return nomeEncontrado || whatsappEncontrado || numeroEncontrado;
+    });
+  }, [reservas, busca]);
+
   const disponiveis = numeros.filter(
     (n) => n.status === "disponivel"
   ).length;
@@ -254,6 +437,10 @@ function Admin() {
 
   const vendidos = numeros.filter(
     (n) => n.status === "vendido"
+  ).length;
+
+  const pendentes = reservas.filter(
+    (r) => r.status === "pendente"
   ).length;
 
   const estiloCard: CSSProperties = {
@@ -285,6 +472,16 @@ function Admin() {
     cursor: "pointer"
   };
 
+  const estiloBotaoAcao = (cor: string): CSSProperties => ({
+    padding: "10px 14px",
+    background: cor,
+    color: "#000",
+    border: "none",
+    borderRadius: 7,
+    fontWeight: "bold",
+    cursor: "pointer"
+  });
+
   return (
     <main
       style={{
@@ -308,7 +505,7 @@ function Admin() {
           flexWrap: "wrap",
           gap: 15,
           marginTop: 30,
-          maxWidth: 900
+          maxWidth: 1100
         }}
       >
         <div style={estiloCard}>
@@ -330,6 +527,231 @@ function Admin() {
           <span style={{ color: "#f87171" }}>Vendidos</span>
           <h2>{vendidos}</h2>
         </div>
+
+        <div style={estiloCard}>
+          <span style={{ color: "#d4af37" }}>Solicitações pendentes</span>
+          <h2>{pendentes}</h2>
+        </div>
+      </section>
+
+      {/* Solicitações recebidas */}
+      <section
+        style={{
+          marginTop: 35,
+          padding: 25,
+          background: "#181818",
+          border: "1px solid #3b3320",
+          borderRadius: 12,
+          maxWidth: 1100
+        }}
+      >
+        <h2>Solicitações recebidas</h2>
+
+        <p style={{ color: "#aaa", margin: "10px 0 20px" }}>
+          Consulte os participantes e gerencie as solicitações em tempo real.
+        </p>
+
+        <input
+          type="search"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Pesquisar por nome, WhatsApp ou número..."
+          style={estiloCampo}
+        />
+
+        {carregandoReservas ? (
+          <p style={{ color: "#d4af37", marginTop: 20 }}>
+            Carregando solicitações...
+          </p>
+        ) : reservasFiltradas.length === 0 ? (
+          <p style={{ color: "#aaa", marginTop: 20 }}>
+            {busca
+              ? "Nenhuma solicitação encontrada para essa pesquisa."
+              : "Nenhuma solicitação recebida até o momento."}
+          </p>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gap: 15,
+              marginTop: 20
+            }}
+          >
+            {reservasFiltradas.map((reserva) => {
+              const pendente = reserva.status === "pendente";
+              const confirmada = reserva.status === "confirmado";
+              const processando = processandoReserva === reserva.id;
+
+              const corStatus =
+                reserva.status === "confirmado"
+                  ? "#4ade80"
+                  : reserva.status === "negado"
+                    ? "#f87171"
+                    : "#facc15";
+
+              return (
+                <article
+                  key={reserva.id}
+                  style={{
+                    background: "#101010",
+                    border: "1px solid #333",
+                    borderRadius: 10,
+                    padding: 18
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      alignItems: "center"
+                    }}
+                  >
+                    <h3 style={{ margin: 0 }}>
+                      {reserva.nome || "Participante sem nome"}
+                    </h3>
+
+                    <span
+                      style={{
+                        color: corStatus,
+                        border: `1px solid ${corStatus}`,
+                        borderRadius: 20,
+                        padding: "5px 12px",
+                        fontSize: 12,
+                        fontWeight: "bold",
+                        textTransform: "uppercase"
+                      }}
+                    >
+                      {reserva.status}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gap: 14,
+                      marginTop: 18
+                    }}
+                  >
+                    <div>
+                      <small style={{ color: "#aaa" }}>WhatsApp</small>
+                      <p style={{ margin: "5px 0" }}>
+                        {reserva.whatsapp}
+                      </p>
+                    </div>
+
+                    <div>
+                      <small style={{ color: "#aaa" }}>Quantidade</small>
+                      <p style={{ margin: "5px 0" }}>
+                        {reserva.quantidade}
+                      </p>
+                    </div>
+
+                    <div>
+                      <small style={{ color: "#aaa" }}>Valor de referência</small>
+                      <p style={{ margin: "5px 0" }}>
+                        {Number(reserva.valorTotal).toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL"
+                        })}
+                      </p>
+                    </div>
+
+                    <div>
+                      <small style={{ color: "#aaa" }}>Data da solicitação</small>
+                      <p style={{ margin: "5px 0" }}>
+                        {formatarData(reserva.criadoEm)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 15 }}>
+                    <small style={{ color: "#aaa" }}>
+                      Números escolhidos
+                    </small>
+
+                    <p
+                      style={{
+                        color: "#d4af37",
+                        fontWeight: "bold",
+                        lineHeight: 1.8,
+                        margin: "6px 0 0",
+                        wordBreak: "break-word"
+                      }}
+                    >
+                      {reserva.numeros
+                        .map((numero) => String(numero).padStart(3, "0"))
+                        .join(", ")}
+                    </p>
+                  </div>
+
+                  {/* AÇÕES PARA SOLICITAÇÕES PENDENTES */}
+                  {pendente && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 10,
+                        marginTop: 18
+                      }}
+                    >
+                      <button
+                        type="button"
+                        disabled={processando}
+                        onClick={() =>
+                          processarSolicitacao(reserva.id, "confirmar")
+                        }
+                        style={{
+                          ...estiloBotaoAcao("#4ade80"),
+                          opacity: processando ? 0.6 : 1
+                        }}
+                      >
+                        {processando ? "PROCESSANDO..." : "CONFIRMAR"}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={processando}
+                        onClick={() =>
+                          processarSolicitacao(reserva.id, "negar")
+                        }
+                        style={{
+                          ...estiloBotaoAcao("#f87171"),
+                          opacity: processando ? 0.6 : 1
+                        }}
+                      >
+                        {processando ? "PROCESSANDO..." : "NEGAR"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* AÇÃO PARA SOLICITAÇÕES CONFIRMADAS */}
+                  {confirmada && (
+                    <div style={{ marginTop: 18 }}>
+                      <button
+                        type="button"
+                        disabled={processando}
+                        onClick={() =>
+                          processarSolicitacao(reserva.id, "excluir")
+                        }
+                        style={{
+                          ...estiloBotaoAcao("#f87171"),
+                          opacity: processando ? 0.6 : 1
+                        }}
+                      >
+                        {processando
+                          ? "PROCESSANDO..."
+                          : "EXCLUIR SOLICITAÇÃO"}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Configurações da campanha */}
@@ -356,6 +778,7 @@ function Admin() {
           <div style={{ display: "grid", gap: 18 }}>
             <label>
               Data do sorteio
+
               <input
                 type="date"
                 value={configuracao.dataSorteio}
@@ -364,6 +787,7 @@ function Admin() {
                 }
                 style={estiloCampo}
               />
+
               <small style={{ color: "#aaa" }}>
                 Deixe vazio enquanto a data não estiver definida.
               </small>
@@ -371,6 +795,7 @@ function Admin() {
 
             <label>
               Chave PIX (e-mail)
+
               <input
                 type="email"
                 value={configuracao.chavePix}
@@ -384,6 +809,7 @@ function Admin() {
 
             <label>
               Nome da titular
+
               <input
                 type="text"
                 value={configuracao.nomeTitular}
@@ -397,6 +823,7 @@ function Admin() {
 
             <label>
               Valor por número (R$)
+
               <input
                 type="number"
                 min="1"
@@ -411,6 +838,7 @@ function Admin() {
 
             <label>
               Quantidade de números
+
               <input
                 type="number"
                 min="1"
@@ -425,6 +853,7 @@ function Admin() {
 
             <label>
               Prazo de reserva (minutos)
+
               <input
                 type="number"
                 min="1"

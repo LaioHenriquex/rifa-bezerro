@@ -1,5 +1,5 @@
-
 import { useEffect, useState } from "react";
+import type { FormEvent, CSSProperties } from "react";
 
 import {
   collection,
@@ -29,6 +29,7 @@ function Home() {
   const [nome, setNome] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [erroFormulario, setErroFormulario] = useState("");
+  const [enviandoSolicitacao, setEnviandoSolicitacao] = useState(false);
 
   const [chavePix, setChavePix] = useState("");
   const [nomeTitular, setNomeTitular] = useState("");
@@ -43,6 +44,7 @@ function Home() {
       if (!usuario) {
         signInAnonymously(auth).catch((erro) => {
           console.error("Erro na autenticação anônima:", erro);
+          setErroBanco("Não foi possível iniciar a conexão. Atualize a página.");
         });
       }
     });
@@ -65,7 +67,9 @@ function Home() {
           setDataSorteio(dados.dataSorteio ?? "");
         }
       },
-      (erro) => console.error("Erro ao carregar configurações:", erro)
+      (erro) => {
+        console.error("Erro ao carregar configurações:", erro);
+      }
     );
 
     return () => cancelar();
@@ -111,7 +115,7 @@ function Home() {
 
         setStatusNumeros(status);
 
-        // Remove da seleção os números indisponíveis
+        // Remove da seleção os números que ficaram indisponíveis
         setSelecionados((atuais) =>
           atuais.filter((numero) => status[numero] === "disponivel")
         );
@@ -157,12 +161,14 @@ function Home() {
     return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7)}`;
   }
 
-  function avancarCadastro(e: React.FormEvent<HTMLFormElement>) {
+  // Registra a solicitação e depois abre o WhatsApp
+  async function avancarCadastro(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setErroFormulario("");
 
     const nomeLimpo = nome.trim().replace(/\s+/g, " ");
     const telefoneLimpo = whatsapp.replace(/\D/g, "");
+    const numerosSelecionados = [...selecionados].sort((a, b) => a - b);
 
     if (nomeLimpo.split(" ").length < 2) {
       setErroFormulario("Digite seu nome e sobrenome.");
@@ -174,17 +180,33 @@ function Home() {
       return;
     }
 
-    if (selecionados.length === 0) {
+    if (numerosSelecionados.length === 0) {
       setErroFormulario("Selecione pelo menos um número.");
       return;
     }
 
-    const listaNumeros = [...selecionados]
-      .sort((a, b) => a - b)
-      .map((n) => String(n).padStart(3, "0"))
+    if (numerosSelecionados.length > 20) {
+      setErroFormulario("Você pode selecionar no máximo 20 números por solicitação.");
+      return;
+    }
+
+    // Confere novamente se todos os números continuam disponíveis
+    const todosDisponiveis = numerosSelecionados.every(
+      (numero) => statusNumeros[numero] === "disponivel"
+    );
+
+    if (!todosDisponiveis) {
+      setErroFormulario(
+        "Um ou mais números não estão mais disponíveis. Atualize sua seleção."
+      );
+      return;
+    }
+
+    const listaNumeros = numerosSelecionados
+      .map((numero) => String(numero).padStart(3, "0"))
       .join(", ");
 
-    const total = selecionados.length * 20;
+    const total = numerosSelecionados.length * 20;
 
     const mensagem = [
       "Tenho interesse na rifa demonstrativa.",
@@ -192,7 +214,7 @@ function Home() {
       `Nome: ${nomeLimpo}`,
       `WhatsApp: ${whatsapp}`,
       `Números escolhidos: ${listaNumeros}`,
-      `Quantidade: ${selecionados.length}`,
+      `Quantidade: ${numerosSelecionados.length}`,
       `Valor de referência: ${total.toLocaleString("pt-BR", {
         style: "currency",
         currency: "BRL"
@@ -202,7 +224,66 @@ function Home() {
     const numeroDestino = "557398645777";
     const link = `https://wa.me/${numeroDestino}?text=${encodeURIComponent(mensagem)}`;
 
-    window.open(link, "_blank", "noopener,noreferrer");
+    setEnviandoSolicitacao(true);
+
+    // Abre uma janela vazia durante o clique para evitar bloqueio de pop-up
+    const janelaWhatsApp = window.open("about:blank", "_blank");
+
+    if (janelaWhatsApp) {
+      janelaWhatsApp.opener = null;
+    }
+
+    try {
+      // Garante que o visitante esteja autenticado
+      const usuario =
+        auth.currentUser ?? (await signInAnonymously(auth)).user;
+
+      const token = await usuario.getIdToken();
+
+      // Envia a solicitação para a API segura
+      const resposta = await fetch("/api/reservas", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          nome: nomeLimpo,
+          whatsapp: telefoneLimpo,
+          numeros: numerosSelecionados
+        })
+      });
+
+      const resultado = await resposta.json();
+
+      if (!resposta.ok) {
+        throw new Error(
+          resultado.erro || "Não foi possível registrar a solicitação."
+        );
+      }
+
+      // Só abre o WhatsApp depois que a API confirma o registro
+      if (janelaWhatsApp && !janelaWhatsApp.closed) {
+        janelaWhatsApp.location.href = link;
+      } else {
+        window.location.href = link;
+      }
+
+    } catch (erro) {
+      console.error("Erro ao registrar solicitação:", erro);
+
+      if (janelaWhatsApp && !janelaWhatsApp.closed) {
+        janelaWhatsApp.close();
+      }
+
+      setErroFormulario(
+        erro instanceof Error
+          ? erro.message
+          : "Não foi possível registrar sua solicitação. Tente novamente."
+      );
+    } finally {
+      setEnviandoSolicitacao(false);
+    }
   }
 
   const total = selecionados.length * 20;
@@ -213,6 +294,7 @@ function Home() {
         <div className="brand">
           RF <span>PREMIUM</span>
         </div>
+
         <a href="#numeros">ESCOLHER NÚMEROS</a>
       </header>
 
@@ -223,11 +305,14 @@ function Home() {
 
           <div className="hero-content">
             <span className="eyebrow">EDIÇÃO ESPECIAL</span>
+
             <h1>
               RIFA DO<br />
               <span>BEZERRO</span>
             </h1>
+
             <p>Concorra a um bezerro ou R$ 1.200 no PIX!</p>
+
             <a href="#numeros" className="gold-button">
               ESCOLHER MEUS NÚMEROS
             </a>
@@ -276,7 +361,9 @@ function Home() {
 
       <section className="numbers-section" id="numeros">
         <span className="eyebrow">SUA CHANCE COMEÇA AQUI</span>
+
         <h2>Escolha seus números</h2>
+
         <p>Selecione um ou mais números.</p>
 
         <div className="legend">
@@ -305,7 +392,7 @@ function Home() {
                     : ""
                 }`}
                 onClick={() => selecionarNumero(numero)}
-                disabled={carregando || indisponivel}
+                disabled={carregando || indisponivel || enviandoSolicitacao}
                 aria-pressed={ativo}
                 title={
                   status === "vendido"
@@ -331,6 +418,7 @@ function Home() {
 
           <div>
             <span>Valor de referência</span>
+
             <strong>
               {total.toLocaleString("pt-BR", {
                 style: "currency",
@@ -341,7 +429,7 @@ function Home() {
 
           <button
             className="gold-button"
-            disabled={selecionados.length === 0}
+            disabled={selecionados.length === 0 || enviandoSolicitacao}
             onClick={() => {
               setErroFormulario("");
               setMostrarCadastro(true);
@@ -362,12 +450,15 @@ function Home() {
       {mostrarCadastro && (
         <section className="numbers-section" id="cadastro">
           <span className="eyebrow">QUASE LÁ!</span>
+
           <h2>Continue seu atendimento</h2>
+
           <p>Confira os números e informe seus dados.</p>
 
           <div className="selection-summary">
             <div>
               <span>Números escolhidos</span>
+
               <strong>
                 {[...selecionados]
                   .sort((a, b) => a - b)
@@ -383,6 +474,7 @@ function Home() {
 
             <div>
               <span>Valor de referência</span>
+
               <strong>
                 {total.toLocaleString("pt-BR", {
                   style: "currency",
@@ -420,6 +512,7 @@ function Home() {
 
               <label>
                 Nome completo
+
                 <input
                   type="text"
                   value={nome}
@@ -428,11 +521,13 @@ function Home() {
                   autoComplete="name"
                   required
                   style={estiloCampo}
+                  disabled={enviandoSolicitacao}
                 />
               </label>
 
               <label>
                 WhatsApp
+
                 <input
                   type="tel"
                   value={whatsapp}
@@ -445,6 +540,7 @@ function Home() {
                   maxLength={15}
                   required
                   style={estiloCampo}
+                  disabled={enviandoSolicitacao}
                 />
               </label>
 
@@ -461,14 +557,21 @@ function Home() {
                 </p>
               )}
 
-              <button type="submit" className="gold-button">
-                AVANÇAR PARA O WHATSAPP
+              <button
+                type="submit"
+                className="gold-button"
+                disabled={enviandoSolicitacao}
+              >
+                {enviandoSolicitacao
+                  ? "REGISTRANDO SOLICITAÇÃO..."
+                  : "AVANÇAR PARA O WHATSAPP"}
               </button>
 
               <button
                 type="button"
                 className="gold-button"
                 onClick={() => setMostrarCadastro(false)}
+                disabled={enviandoSolicitacao}
               >
                 VOLTAR AOS NÚMEROS
               </button>
@@ -485,6 +588,7 @@ function Home() {
               }}
             >
               <span className="eyebrow">DADOS PIX</span>
+
               <h3 style={{ marginTop: 10 }}>Chave PIX</h3>
 
               <p style={{ color: "#aaa", fontSize: 14 }}>
@@ -493,6 +597,7 @@ function Home() {
 
               <label style={{ display: "block", marginTop: 22 }}>
                 Nome da titular
+
                 <input
                   type="text"
                   value={nomeTitular || "Carregando..."}
@@ -503,6 +608,7 @@ function Home() {
 
               <label style={{ display: "block", marginTop: 18 }}>
                 Chave PIX (e-mail)
+
                 <input
                   type="text"
                   value={chavePix || "Carregando..."}
@@ -543,15 +649,16 @@ function Home() {
 
       <footer className="rifa-footer">
         <strong>RF PREMIUM</strong>
+
         <a href="/login" className="admin-access">
-  Acesso administrativo
-</a>
+          Acesso administrativo
+        </a>
       </footer>
     </main>
   );
 }
 
-const estiloCampo: React.CSSProperties = {
+const estiloCampo: CSSProperties = {
   display: "block",
   width: "100%",
   padding: "14px",
