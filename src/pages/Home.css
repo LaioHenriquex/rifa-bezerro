@@ -1,0 +1,517 @@
+
+/* =====================================
+   CONFIGURAÇÃO GERAL
+===================================== */
+
+.rifa-page {
+  min-height: 100vh;
+  background: #0b0b0b;
+  color: #fff;
+}
+
+/* =====================================
+   CABEÇALHO
+===================================== */
+
+.rifa-header {
+  height: 75px;
+  padding: 0 7%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #302719;
+}
+
+.brand {
+  font-size: 25px;
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.brand span,
+.rifa-header a {
+  color: #d5b66b;
+}
+
+.brand span {
+  font-size: 12px;
+}
+
+.rifa-header a {
+  text-decoration: none;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+/* =====================================
+   BANNER PRINCIPAL
+===================================== */
+
+.hero {
+  padding: 35px 7%;
+}
+
+.hero-image {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #111;
+}
+
+.hero-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center center;
+  background: #111;
+}
+
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    #000000e8,
+    #00000070,
+    transparent
+  );
+}
+
+.hero-content {
+  position: absolute;
+  top: 50%;
+  left: 8%;
+  transform: translateY(-50%);
+  max-width: 520px;
+}
+
+.eyebrow {
+  color: #d5b66b;
+  font-size: 12px;
+  letter-spacing: 3px;
+  font-weight: bold;
+}
+
+.hero h1 {
+  font-size: clamp(42px, 7vw, 76px);
+  line-height: .95;
+  margin: 20px 0;
+}
+
+.hero h1 span {
+  color: #d5b66b;
+}
+
+.hero-content p {
+  color: #ddd;
+  margin-bottom: 30px;
+  font-size: 17px;
+}
+
+/* =====================================
+   BOTÕES
+===================================== */
+
+.gold-button {
+  display: inline-block;
+  border: none;
+  border-radius: 5px;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, #e5cc83, #b28b3d);
+  color: #17130a;
+  font-weight: bold;
+  cursor: pointer;
+  text-decoration: none;
+  transition: .25s ease;
+}
+
+.gold-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 7px 18px rgba(213, 182, 107, .2);
+}
+
+.gold-button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+/* =====================================
+   CAMPANHA DE SOLIDARIEDADE
+===================================== */
+
+.solidarity-section {
+  position: relative;
+  overflow: hidden;
+  margin: 0 7% 35px;
+  padding: 42px 45px;
+  text-align: left;
+
+  background:
+    radial-gradient(
+      ellipse at top right,
+      rgba(213, 182, 107, .10),
+      transparent 55%
+    ),
+    linear-gradient(135deg, #171717 0%, #101010 100%);
+
+  border: 1px solid rgba(213, 182, 107, .25);
+  border-radius: 14px;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, .22);
+}
+
+.solidarity-section::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(
+    180deg,
+    #e5cc83,
+    #a98239
+  );
+}
+
+.solidarity-section .eyebrow {
+  display: inline-block;
+  color: #d5b66b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.solidarity-section h2 {
+  max-width: 700px;
+  margin: 20px 0 12px;
+  color: #fff;
+  font-size: clamp(25px, 3.5vw, 38px);
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -.8px;
+}
+
+.solidarity-section .solidarity-name {
+  display: block;
+  margin-bottom: 18px;
+  color: #dfc477;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .3px;
+}
+
+.solidarity-section p {
+  max-width: 780px;
+  margin: 0;
+  color: #c5c5c5;
+  font-size: 15px;
+  line-height: 1.9;
+  font-weight: 400;
+}
+
+.solidarity-section p strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+.solidarity-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 25px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(213, 182, 107, .2);
+  color: #dfc477;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .3px;
+}
+
+/* =====================================
+   INFORMAÇÕES DO PRÊMIO
+===================================== */
+
+.prize-info {
+  margin: 0 7%;
+  padding: 28px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  background: #151515;
+  border: 1px solid #302a1d;
+  border-radius: 10px;
+}
+
+.prize-info div,
+.selection-summary div {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prize-info span,
+.selection-summary span {
+  color: #aaa;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.prize-info strong,
+.selection-summary strong {
+  color: #dfc477;
+  font-size: 22px;
+}
+
+/* =====================================
+   SEÇÃO DOS NÚMEROS
+===================================== */
+
+.numbers-section {
+  padding: 85px 7%;
+  text-align: center;
+}
+
+.numbers-section h2 {
+  font-size: 34px;
+  margin: 14px 0;
+}
+
+.numbers-section > p {
+  color: #aaa;
+}
+
+/* Legenda */
+
+.legend {
+  display: flex;
+  justify-content: center;
+  gap: 25px;
+  flex-wrap: wrap;
+  margin: 30px 0;
+  color: #bbb;
+  font-size: 12px;
+}
+
+.legend span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.available {
+  background: #292929;
+}
+
+.selected {
+  background: #d5b66b;
+}
+
+.unavailable {
+  background: #b32626;
+}
+
+/* =====================================
+   QUADRADOS DOS NÚMEROS
+===================================== */
+
+.numbers-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 9px;
+  max-width: 900px;
+  margin: auto;
+}
+
+.number {
+  min-height: 43px;
+  border: 1px solid #393939;
+  border-radius: 5px;
+  background: #191919;
+  color: #eee;
+  cursor: pointer;
+  transition: .2s ease;
+}
+
+.number:hover {
+  border-color: #d5b66b;
+}
+
+.number-selected {
+  background: #d5b66b;
+  color: #17130a;
+  font-weight: bold;
+}
+
+/* Números vendidos ou reservados */
+
+.number.number-unavailable {
+  background: #b32626 !important;
+  color: #fff !important;
+  border: 2px solid #ff4545 !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  text-decoration: line-through;
+  font-weight: bold;
+  box-shadow: 0 0 8px rgba(255, 0, 0, .35);
+}
+
+.number.number-unavailable:hover {
+  background: #b32626 !important;
+  transform: none !important;
+}
+
+/* =====================================
+   RESUMO DA SELEÇÃO
+===================================== */
+
+.selection-summary {
+  max-width: 900px;
+  margin: 35px auto 0;
+  padding: 22px;
+  background: #151515;
+  border: 1px solid #302a1d;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  text-align: left;
+}
+
+/* =====================================
+   RODAPÉ
+===================================== */
+
+.rifa-footer {
+  padding: 35px;
+  text-align: center;
+  border-top: 1px solid #29251b;
+  color: #888;
+  font-size: 12px;
+}
+
+.rifa-footer strong {
+  color: #d5b66b;
+  letter-spacing: 2px;
+}
+
+/* =====================================
+   RESPONSIVIDADE - CELULARES
+===================================== */
+
+@media (max-width: 650px) {
+
+  .rifa-header {
+    padding: 0 5%;
+  }
+
+  .hero {
+    padding: 18px 5%;
+  }
+
+  .hero-image {
+    height: 430px;
+  }
+
+  .hero-overlay {
+    background: linear-gradient(
+      0deg,
+      #000000ed,
+      #00000035
+    );
+  }
+
+  .hero-content {
+    left: 7%;
+    right: 5%;
+    top: auto;
+    bottom: 35px;
+    transform: none;
+  }
+
+  .solidarity-section {
+    margin: 0 5% 25px;
+    padding: 30px 23px;
+    border-radius: 11px;
+  }
+
+  .solidarity-section h2 {
+    margin-top: 17px;
+    font-size: 27px;
+    line-height: 1.25;
+  }
+
+  .solidarity-section .solidarity-name {
+    font-size: 16px;
+    margin-bottom: 14px;
+  }
+
+  .solidarity-section p {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .solidarity-message {
+    margin-top: 20px;
+    padding-top: 17px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .prize-info {
+    margin: 0 5%;
+    grid-template-columns: 1fr;
+  }
+
+  .numbers-section {
+    padding: 65px 5%;
+  }
+
+  .numbers-section h2 {
+    font-size: 27px;
+  }
+
+  .numbers-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .number {
+    min-height: 42px;
+  }
+
+  .selection-summary {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .selection-summary .gold-button {
+    text-align: center;
+  }
+  /* ACESSO ADMINISTRATIVO */
+
+.admin-access {
+  display: inline-block;
+  margin-top: 15px;
+  color: #777;
+  font-size: 11px;
+  text-decoration: none;
+  letter-spacing: 1px;
+  transition: .3s ease;
+}
+
+.admin-access:hover {
+  color: #d5b66b;
+}
+}
