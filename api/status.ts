@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
-import { liberarReservasExpiradas } from "../src/lib/expirarReservas";
+import { liberarReservasExpiradas } from "../src/lib/expirarReservas.js";
 
 function obterBanco() {
   const credencialJSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
