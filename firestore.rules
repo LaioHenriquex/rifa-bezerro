@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function ehAdministrador() {
+      return request.auth != null
+        && request.auth.uid == "aP2oK0J58GWViujxUwIvf6jx0dk1";
+    }
+
+    match /numeros/{numeroId} {
+      allow read, write: if ehAdministrador();
+    }
+
+    match /reservas/{reservaId} {
+      allow read, write: if ehAdministrador();
+    }
+
+    match /configuracoes/{configId} {
+      allow read, write: if ehAdministrador();
+    }
+
+    match /{documento=**} {
+      allow read, write: if false;
+    }
+  }
+}

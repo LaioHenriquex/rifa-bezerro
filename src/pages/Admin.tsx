@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-
 import {
   doc,
   writeBatch,
   getDoc,
+  getDocs,
   collection,
-  onSnapshot,
   updateDoc,
   query,
   orderBy,
   setDoc
 } from "firebase/firestore";
-
 import { auth, db } from "../firebase";
 
 type StatusNumero = "disponivel" | "reservado" | "vendido";
@@ -41,10 +39,10 @@ type Reserva = {
   quantidade: number;
   valorTotal: number;
   status: StatusReserva;
-  criadoEm?: {
-    toDate?: () => Date;
-  } | Date | null;
+  criadoEm?: Date | null;
 };
+
+const CHAVE_CACHE = "rf-premium-admin-cache-v1";
 
 const configuracaoInicial: Configuracao = {
   chavePix: "",
@@ -69,47 +67,138 @@ function Admin() {
 
   const [reservas, setReservas] = useState<Reserva[]>([]);
   const [carregandoReservas, setCarregandoReservas] = useState(true);
-  const [processandoReserva, setProcessandoReserva] = useState<string | null>(null);
+
+  const [processandoReserva, setProcessandoReserva] =
+    useState<string | null>(null);
+
   const [busca, setBusca] = useState("");
+  const [carregandoDados, setCarregandoDados] = useState(false);
+  const [cacheInicializado, setCacheInicializado] = useState(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState("");
 
-  // Acompanha os números em tempo real
+  // CACHE LOCAL
+  function salvarCache() {
+    try {
+      const dados = {
+        numeros,
+        configuracao,
+        reservas,
+        ultimaAtualizacao
+      };
+
+      localStorage.setItem(CHAVE_CACHE, JSON.stringify(dados));
+    } catch (erro) {
+      console.error("Erro ao salvar cache:", erro);
+    }
+  }
+
+  // Carrega os dados guardados no navegador
   useEffect(() => {
-    const consulta = query(
-      collection(db, "numeros"),
-      orderBy("numero")
-    );
+    try {
+      const cache = localStorage.getItem(CHAVE_CACHE);
 
-    const cancelar = onSnapshot(
-      consulta,
-      (snapshot) => {
-        const lista: Numero[] = snapshot.docs.map((documento) => {
-          const dados = documento.data();
+      if (cache) {
+        const dados = JSON.parse(cache);
 
-          return {
-            id: documento.id,
-            numero: dados.numero,
-            status: dados.status
-          };
-        });
+        if (Array.isArray(dados.numeros)) {
+          setNumeros(dados.numeros);
+        }
 
-        setNumeros(lista);
-      },
-      (erro) => {
-        console.error(erro);
-        setMensagem("Erro ao carregar os números.");
+        if (dados.configuracao) {
+          setConfiguracao({
+            ...configuracaoInicial,
+            ...dados.configuracao
+          });
+        }
+
+        if (Array.isArray(dados.reservas)) {
+          setReservas(
+            dados.reservas.map((reserva: Reserva) => ({
+              ...reserva,
+              criadoEm: reserva.criadoEm
+                ? new Date(reserva.criadoEm)
+                : null
+            }))
+          );
+        }
+
+        setUltimaAtualizacao(dados.ultimaAtualizacao ?? "");
+        setCarregandoConfig(false);
+        setCarregandoReservas(false);
+      } else {
+        void carregarDadosFirebase();
       }
-    );
-
-    return () => cancelar();
+    } catch (erro) {
+      console.error("Erro ao recuperar cache:", erro);
+      void carregarDadosFirebase();
+    } finally {
+      setCacheInicializado(true);
+    }
   }, []);
 
-  // Carrega as configurações da campanha
+  // Salva automaticamente as alterações no cache local
   useEffect(() => {
-    const referencia = doc(db, "configuracoes", "campanha");
+    if (cacheInicializado) {
+      salvarCache();
+    }
+  }, [
+    numeros,
+    configuracao,
+    reservas,
+    ultimaAtualizacao,
+    cacheInicializado
+  ]);
 
-    const cancelar = onSnapshot(
-      referencia,
-      (documento) => {
+  // CARREGAMENTO MANUAL DO FIREBASE
+  async function carregarDadosFirebase() {
+    if (carregandoDados) return;
+
+    try {
+      setCarregandoDados(true);
+      setMensagem("");
+
+      const resultados = await Promise.allSettled([
+        getDocs(
+          query(
+            collection(db, "numeros"),
+            orderBy("numero")
+          )
+        ),
+        getDoc(doc(db, "configuracoes", "campanha")),
+        getDocs(
+          query(
+            collection(db, "reservas"),
+            orderBy("criadoEm", "desc")
+          )
+        )
+      ]);
+
+      let quantidadeSucesso = 0;
+
+      // NÚMEROS
+      if (resultados[0].status === "fulfilled") {
+        const lista: Numero[] = resultados[0].value.docs.map(
+          (documento) => {
+            const dados = documento.data();
+
+            return {
+              id: documento.id,
+              numero: dados.numero,
+              status: dados.status
+            };
+          }
+        );
+
+        setNumeros(lista);
+        quantidadeSucesso++;
+      } else {
+        console.error("Erro ao carregar números:", resultados[0].reason);
+      }
+
+      // CONFIGURAÇÕES
+      if (resultados[1].status === "fulfilled") {
+        const documento = resultados[1].value;
+
         if (documento.exists()) {
           const dados = documento.data();
 
@@ -124,71 +213,101 @@ function Admin() {
         }
 
         setCarregandoConfig(false);
-      },
-      (erro) => {
-        console.error("Erro ao carregar configurações:", erro);
-        setMensagem("Erro ao carregar as configurações.");
-        setCarregandoConfig(false);
+        quantidadeSucesso++;
+      } else {
+        console.error(
+          "Erro ao carregar configurações:",
+          resultados[1].reason
+        );
       }
-    );
 
-    return () => cancelar();
-  }, []);
+      // RESERVAS
+      if (resultados[2].status === "fulfilled") {
+        const lista: Reserva[] = resultados[2].value.docs.map(
+          (documento) => {
+            const dados = documento.data();
 
-  // Acompanha as solicitações em tempo real
-  useEffect(() => {
-    const consulta = query(
-      collection(db, "reservas"),
-      orderBy("criadoEm", "desc")
-    );
-
-    const cancelar = onSnapshot(
-      consulta,
-      (snapshot) => {
-        const lista: Reserva[] = snapshot.docs.map((documento) => {
-          const dados = documento.data();
-
-          return {
-            id: documento.id,
-            nome: dados.nome ?? "",
-            whatsapp: dados.whatsapp ?? "",
-            numeros: Array.isArray(dados.numeros) ? dados.numeros : [],
-            quantidade: dados.quantidade ?? 0,
-            valorTotal: dados.valorTotal ?? 0,
-            status: dados.status ?? "pendente",
-            criadoEm: dados.criadoEm ?? null
-          };
-        });
+            return {
+              id: documento.id,
+              nome: dados.nome ?? "",
+              whatsapp: dados.whatsapp ?? "",
+              numeros: Array.isArray(dados.numeros)
+                ? dados.numeros
+                : [],
+              quantidade: dados.quantidade ?? 0,
+              valorTotal: dados.valorTotal ?? 0,
+              status: dados.status ?? "pendente",
+              criadoEm: dados.criadoEm?.toDate
+                ? dados.criadoEm.toDate()
+                : null
+            };
+          }
+        );
 
         setReservas(lista);
         setCarregandoReservas(false);
-      },
-      (erro) => {
-        console.error("Erro ao carregar solicitações:", erro);
-        setMensagem("Erro ao carregar as solicitações.");
-        setCarregandoReservas(false);
+        quantidadeSucesso++;
+      } else {
+        console.error(
+          "Erro ao carregar reservas:",
+          resultados[2].reason
+        );
       }
-    );
 
-    return () => cancelar();
-  }, []);
+      if (quantidadeSucesso > 0) {
+        const agora = new Date().toLocaleString("pt-BR");
+        setUltimaAtualizacao(agora);
+      }
 
-  // Cadastra os 200 números sem apagar os existentes
+      if (quantidadeSucesso === 3) {
+        setMensagem("Dados atualizados com sucesso!");
+      } else {
+        setMensagem(
+          "Alguns dados não puderam ser atualizados. O cache anterior foi preservado."
+        );
+      }
+    } catch (erro) {
+      console.error("Erro ao atualizar dados:", erro);
+
+      setMensagem(
+        "Não foi possível atualizar. Os últimos dados salvos foram preservados."
+      );
+    } finally {
+      setCarregandoDados(false);
+    }
+  }
+
+  // CADASTRO DOS NÚMEROS
   async function criarNumeros() {
     try {
       setCarregando(true);
       setMensagem("");
 
+      if (numeros.length === 200) {
+        setMensagem(
+          "Os 200 números já estão carregados. Nenhum documento foi alterado."
+        );
+        return;
+      }
+
       const batch = writeBatch(db);
       let criados = 0;
 
+      // Busca os documentos existentes em uma única consulta.
+      // Os números já cadastrados são preservados.
+      const existentesSnapshot = await getDocs(
+        collection(db, "numeros")
+      );
+
+      const existentes = new Set(
+        existentesSnapshot.docs.map((documento) => documento.id)
+      );
+
       for (let numero = 1; numero <= 200; numero++) {
         const id = String(numero).padStart(3, "0");
-        const referencia = doc(db, "numeros", id);
-        const existente = await getDoc(referencia);
 
-        if (!existente.exists()) {
-          batch.set(referencia, {
+        if (!existentes.has(id)) {
+          batch.set(doc(db, "numeros", id), {
             numero,
             status: "disponivel",
             reservaId: null,
@@ -205,17 +324,22 @@ function Admin() {
       }
 
       setMensagem(
-        `${criados} números cadastrados. Os números existentes foram preservados.`
+        `${criados} números cadastrados. Os existentes foram preservados.`
       );
+
+      // Não recarrega automaticamente os 200 documentos.
     } catch (erro) {
       console.error(erro);
-      setMensagem("Erro ao cadastrar os números.");
+
+      setMensagem(
+        "Erro ao cadastrar números. Verifique a disponibilidade do Firebase."
+      );
     } finally {
       setCarregando(false);
     }
   }
 
-  // Altera o status de um número
+  // ALTERAÇÃO DE STATUS DOS NÚMEROS
   async function alterarStatus(
     id: string,
     status: StatusNumero
@@ -228,16 +352,27 @@ function Admin() {
         status
       });
 
+      setNumeros((atuais) =>
+        atuais.map((numero) =>
+          numero.id === id
+            ? { ...numero, status }
+            : numero
+        )
+      );
+
       setMensagem(`Número ${id} atualizado com sucesso.`);
     } catch (erro) {
       console.error(erro);
-      setMensagem(`Erro ao atualizar o número ${id}.`);
+
+      setMensagem(
+        `Erro ao atualizar o número ${id}.`
+      );
     } finally {
       setAtualizando(null);
     }
   }
 
-  // Atualiza os campos das configurações
+  // CONFIGURAÇÕES
   function atualizarConfiguracao(
     campo: keyof Configuracao,
     valor: string
@@ -253,7 +388,6 @@ function Admin() {
     }));
   }
 
-  // Salva as configurações no Firestore
   async function salvarConfiguracoes() {
     try {
       setSalvandoConfig(true);
@@ -263,7 +397,9 @@ function Admin() {
         !configuracao.chavePix.trim() ||
         !configuracao.nomeTitular.trim()
       ) {
-        setMensagem("Preencha a chave PIX e o nome da titular.");
+        setMensagem(
+          "Preencha a chave PIX e o nome da titular."
+        );
         return;
       }
 
@@ -301,12 +437,14 @@ function Admin() {
     }
   }
 
-  // Confirma, nega ou exclui uma solicitação pela API
+  // CONFIRMAR, NEGAR OU EXCLUIR SOLICITAÇÕES
   async function processarSolicitacao(
     reservaId: string,
     acao: "confirmar" | "negar" | "excluir"
   ) {
-    const reserva = reservas.find((item) => item.id === reservaId);
+    const reserva = reservas.find(
+      (item) => item.id === reservaId
+    );
 
     if (!reserva) {
       setMensagem("Solicitação não encontrada.");
@@ -321,16 +459,21 @@ function Admin() {
       return;
     }
 
-    if (acao === "excluir" && reserva.status !== "confirmado") {
-      setMensagem("Somente solicitações confirmadas podem ser excluídas.");
+    if (
+      acao === "excluir" &&
+      reserva.status !== "confirmado"
+    ) {
+      setMensagem(
+        "Somente solicitações confirmadas podem ser excluídas."
+      );
       return;
     }
 
     const confirmacao =
       acao === "confirmar"
-        ? `Deseja confirmar a solicitação de ${reserva.nome}? Os números serão marcados como vendidos.`
+        ? `Deseja confirmar a solicitação de ${reserva.nome}?`
         : acao === "negar"
-          ? `Deseja negar a solicitação de ${reserva.nome}? Os números serão liberados novamente.`
+          ? `Deseja negar a solicitação de ${reserva.nome}?`
           : `Deseja excluir definitivamente a solicitação confirmada de ${reserva.nome}? Os números continuarão vendidos.`;
 
     if (!window.confirm(confirmacao)) return;
@@ -342,7 +485,9 @@ function Admin() {
       const usuario = auth.currentUser;
 
       if (!usuario) {
-        throw new Error("Sua sessão expirou. Entre novamente no painel.");
+        throw new Error(
+          "Sua sessão expirou. Entre novamente no painel."
+        );
       }
 
       const token = await usuario.getIdToken();
@@ -359,21 +504,79 @@ function Admin() {
         })
       });
 
-      const resultado = await resposta.json();
+      const textoResposta = await resposta.text();
+
+      let resultado: { erro?: string } = {};
+
+      try {
+        resultado = textoResposta
+          ? JSON.parse(textoResposta)
+          : {};
+      } catch {
+        resultado = {
+          erro: textoResposta || "Resposta inválida do servidor."
+        };
+      }
 
       if (!resposta.ok) {
         throw new Error(
-          resultado.erro || "Não foi possível processar a solicitação."
+          resultado.erro ||
+          "Não foi possível processar a solicitação."
         );
       }
 
-      setMensagem(
-        acao === "confirmar"
-          ? "Solicitação confirmada com sucesso!"
-          : acao === "negar"
-            ? "Solicitação negada e números liberados!"
-            : "Solicitação confirmada excluída com sucesso!"
-      );
+      // Atualiza o cache local sem fazer novas leituras.
+      if (acao === "confirmar") {
+        setReservas((atuais) =>
+          atuais.map((item) =>
+            item.id === reservaId
+              ? { ...item, status: "confirmado" }
+              : item
+          )
+        );
+
+        setNumeros((atuais) =>
+          atuais.map((numero) =>
+            reserva.numeros.includes(numero.numero)
+              ? { ...numero, status: "vendido" }
+              : numero
+          )
+        );
+
+        setMensagem("Solicitação confirmada com sucesso!");
+      }
+
+      if (acao === "negar") {
+        setReservas((atuais) =>
+          atuais.map((item) =>
+            item.id === reservaId
+              ? { ...item, status: "negado" }
+              : item
+          )
+        );
+
+        setNumeros((atuais) =>
+          atuais.map((numero) =>
+            reserva.numeros.includes(numero.numero)
+              ? { ...numero, status: "disponivel" }
+              : numero
+          )
+        );
+
+        setMensagem(
+          "Solicitação negada e números liberados!"
+        );
+      }
+
+      if (acao === "excluir") {
+        setReservas((atuais) =>
+          atuais.filter((item) => item.id !== reservaId)
+        );
+
+        setMensagem(
+          "Solicitação confirmada excluída com sucesso!"
+        );
+      }
     } catch (erro) {
       console.error("Erro ao processar solicitação:", erro);
 
@@ -387,24 +590,13 @@ function Admin() {
     }
   }
 
-  // Formata a data da solicitação
+  // FORMATAÇÃO E PESQUISA
   function formatarData(data: Reserva["criadoEm"]) {
     if (!data) return "Data não disponível";
 
-    let dataConvertida: Date;
-
-    if (data instanceof Date) {
-      dataConvertida = data;
-    } else if (typeof data.toDate === "function") {
-      dataConvertida = data.toDate();
-    } else {
-      return "Data não disponível";
-    }
-
-    return dataConvertida.toLocaleString("pt-BR");
+    return data.toLocaleString("pt-BR");
   }
 
-  // Pesquisa por nome, WhatsApp ou número
   const reservasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
 
@@ -413,17 +605,24 @@ function Admin() {
     const termoNumerico = termo.replace(/\D/g, "");
 
     return reservas.filter((reserva) => {
-      const nomeEncontrado = reserva.nome.toLowerCase().includes(termo);
+      const nomeEncontrado =
+        reserva.nome.toLowerCase().includes(termo);
 
-      const whatsappEncontrado = reserva.whatsapp
-        .replace(/\D/g, "")
-        .includes(termoNumerico);
+      const whatsappEncontrado =
+        reserva.whatsapp
+          .replace(/\D/g, "")
+          .includes(termoNumerico);
 
-      const numeroEncontrado = reserva.numeros.some((numero) =>
-        String(numero).padStart(3, "0").includes(termo)
+      const numeroEncontrado =
+        reserva.numeros.some((numero) =>
+          String(numero).padStart(3, "0").includes(termo)
+        );
+
+      return (
+        nomeEncontrado ||
+        whatsappEncontrado ||
+        numeroEncontrado
       );
-
-      return nomeEncontrado || whatsappEncontrado || numeroEncontrado;
     });
   }, [reservas, busca]);
 
@@ -443,6 +642,7 @@ function Admin() {
     (r) => r.status === "pendente"
   ).length;
 
+  // ESTILOS
   const estiloCard: CSSProperties = {
     background: "#181818",
     padding: 20,
@@ -472,7 +672,9 @@ function Admin() {
     cursor: "pointer"
   };
 
-  const estiloBotaoAcao = (cor: string): CSSProperties => ({
+  const estiloBotaoAcao = (
+    cor: string
+  ): CSSProperties => ({
     padding: "10px 14px",
     background: cor,
     color: "#000",
@@ -482,6 +684,7 @@ function Admin() {
     cursor: "pointer"
   });
 
+  // INTERFACE
   return (
     <main
       style={{
@@ -498,7 +701,59 @@ function Admin() {
         Gerenciamento da campanha RF PREMIUM
       </p>
 
-      {/* Resumo */}
+      {/* ATUALIZAÇÃO E CACHE */}
+      <section
+        style={{
+          marginTop: 25,
+          padding: 18,
+          background: "#181818",
+          border: "1px solid #3b3320",
+          borderRadius: 12,
+          maxWidth: 1100
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 15
+          }}
+        >
+          <div>
+            <strong style={{ color: "#d4af37" }}>
+              Controle de atualização
+            </strong>
+
+            <p style={{ color: "#aaa", margin: "8px 0 0" }}>
+              {ultimaAtualizacao
+                ? `Última atualização: ${ultimaAtualizacao}`
+                : "Ainda não há dados sincronizados."}
+            </p>
+
+            <small style={{ color: "#888" }}>
+              Os dados exibidos podem estar armazenados no navegador.
+            </small>
+          </div>
+
+          <button
+            type="button"
+            onClick={carregarDadosFirebase}
+            disabled={carregandoDados}
+            style={{
+              ...estiloBotao,
+              opacity: carregandoDados ? 0.6 : 1
+            }}
+          >
+            {carregandoDados
+              ? "ATUALIZANDO..."
+              : "ATUALIZAR DADOS"}
+          </button>
+        </div>
+      </section>
+
+      {/* RESUMO */}
       <section
         style={{
           display: "flex",
@@ -529,12 +784,14 @@ function Admin() {
         </div>
 
         <div style={estiloCard}>
-          <span style={{ color: "#d4af37" }}>Solicitações pendentes</span>
+          <span style={{ color: "#d4af37" }}>
+            Solicitações pendentes
+          </span>
           <h2>{pendentes}</h2>
         </div>
       </section>
 
-      {/* Solicitações recebidas */}
+      {/* SOLICITAÇÕES RECEBIDAS */}
       <section
         style={{
           marginTop: 35,
@@ -548,7 +805,7 @@ function Admin() {
         <h2>Solicitações recebidas</h2>
 
         <p style={{ color: "#aaa", margin: "10px 0 20px" }}>
-          Consulte os participantes e gerencie as solicitações em tempo real.
+          Consulte e gerencie as solicitações.
         </p>
 
         <input
@@ -580,7 +837,8 @@ function Admin() {
             {reservasFiltradas.map((reserva) => {
               const pendente = reserva.status === "pendente";
               const confirmada = reserva.status === "confirmado";
-              const processando = processandoReserva === reserva.id;
+              const processando =
+                processandoReserva === reserva.id;
 
               const corStatus =
                 reserva.status === "confirmado"
@@ -630,37 +888,49 @@ function Admin() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(180px, 1fr))",
                       gap: 14,
                       marginTop: 18
                     }}
                   >
                     <div>
-                      <small style={{ color: "#aaa" }}>WhatsApp</small>
+                      <small style={{ color: "#aaa" }}>
+                        WhatsApp
+                      </small>
                       <p style={{ margin: "5px 0" }}>
                         {reserva.whatsapp}
                       </p>
                     </div>
 
                     <div>
-                      <small style={{ color: "#aaa" }}>Quantidade</small>
+                      <small style={{ color: "#aaa" }}>
+                        Quantidade
+                      </small>
                       <p style={{ margin: "5px 0" }}>
                         {reserva.quantidade}
                       </p>
                     </div>
 
                     <div>
-                      <small style={{ color: "#aaa" }}>Valor de referência</small>
+                      <small style={{ color: "#aaa" }}>
+                        Valor de referência
+                      </small>
                       <p style={{ margin: "5px 0" }}>
-                        {Number(reserva.valorTotal).toLocaleString("pt-BR", {
-                          style: "currency",
-                          currency: "BRL"
-                        })}
+                        {Number(reserva.valorTotal).toLocaleString(
+                          "pt-BR",
+                          {
+                            style: "currency",
+                            currency: "BRL"
+                          }
+                        )}
                       </p>
                     </div>
 
                     <div>
-                      <small style={{ color: "#aaa" }}>Data da solicitação</small>
+                      <small style={{ color: "#aaa" }}>
+                        Data da solicitação
+                      </small>
                       <p style={{ margin: "5px 0" }}>
                         {formatarData(reserva.criadoEm)}
                       </p>
@@ -682,12 +952,14 @@ function Admin() {
                       }}
                     >
                       {reserva.numeros
-                        .map((numero) => String(numero).padStart(3, "0"))
+                        .map((numero) =>
+                          String(numero).padStart(3, "0")
+                        )
                         .join(", ")}
                     </p>
                   </div>
 
-                  {/* AÇÕES PARA SOLICITAÇÕES PENDENTES */}
+                  {/* AÇÕES PENDENTES */}
                   {pendente && (
                     <div
                       style={{
@@ -701,40 +973,53 @@ function Admin() {
                         type="button"
                         disabled={processando}
                         onClick={() =>
-                          processarSolicitacao(reserva.id, "confirmar")
+                          processarSolicitacao(
+                            reserva.id,
+                            "confirmar"
+                          )
                         }
                         style={{
                           ...estiloBotaoAcao("#4ade80"),
                           opacity: processando ? 0.6 : 1
                         }}
                       >
-                        {processando ? "PROCESSANDO..." : "CONFIRMAR"}
+                        {processando
+                          ? "PROCESSANDO..."
+                          : "CONFIRMAR"}
                       </button>
 
                       <button
                         type="button"
                         disabled={processando}
                         onClick={() =>
-                          processarSolicitacao(reserva.id, "negar")
+                          processarSolicitacao(
+                            reserva.id,
+                            "negar"
+                          )
                         }
                         style={{
                           ...estiloBotaoAcao("#f87171"),
                           opacity: processando ? 0.6 : 1
                         }}
                       >
-                        {processando ? "PROCESSANDO..." : "NEGAR"}
+                        {processando
+                          ? "PROCESSANDO..."
+                          : "NEGAR"}
                       </button>
                     </div>
                   )}
 
-                  {/* AÇÃO PARA SOLICITAÇÕES CONFIRMADAS */}
+                  {/* AÇÃO CONFIRMADA */}
                   {confirmada && (
                     <div style={{ marginTop: 18 }}>
                       <button
                         type="button"
                         disabled={processando}
                         onClick={() =>
-                          processarSolicitacao(reserva.id, "excluir")
+                          processarSolicitacao(
+                            reserva.id,
+                            "excluir"
+                          )
                         }
                         style={{
                           ...estiloBotaoAcao("#f87171"),
@@ -753,8 +1038,7 @@ function Admin() {
           </div>
         )}
       </section>
-
-      {/* Configurações da campanha */}
+            {/* CONFIGURAÇÕES */}
       <section
         style={{
           marginTop: 35,
@@ -783,7 +1067,10 @@ function Admin() {
                 type="date"
                 value={configuracao.dataSorteio}
                 onChange={(e) =>
-                  atualizarConfiguracao("dataSorteio", e.target.value)
+                  atualizarConfiguracao(
+                    "dataSorteio",
+                    e.target.value
+                  )
                 }
                 style={estiloCampo}
               />
@@ -800,7 +1087,10 @@ function Admin() {
                 type="email"
                 value={configuracao.chavePix}
                 onChange={(e) =>
-                  atualizarConfiguracao("chavePix", e.target.value)
+                  atualizarConfiguracao(
+                    "chavePix",
+                    e.target.value
+                  )
                 }
                 placeholder="teste@email.com"
                 style={estiloCampo}
@@ -814,7 +1104,10 @@ function Admin() {
                 type="text"
                 value={configuracao.nomeTitular}
                 onChange={(e) =>
-                  atualizarConfiguracao("nomeTitular", e.target.value)
+                  atualizarConfiguracao(
+                    "nomeTitular",
+                    e.target.value
+                  )
                 }
                 placeholder="Nome da titular da chave"
                 style={estiloCampo}
@@ -830,7 +1123,10 @@ function Admin() {
                 step="0.01"
                 value={configuracao.valorNumero}
                 onChange={(e) =>
-                  atualizarConfiguracao("valorNumero", e.target.value)
+                  atualizarConfiguracao(
+                    "valorNumero",
+                    e.target.value
+                  )
                 }
                 style={estiloCampo}
               />
@@ -845,7 +1141,10 @@ function Admin() {
                 step="1"
                 value={configuracao.quantidadeNumeros}
                 onChange={(e) =>
-                  atualizarConfiguracao("quantidadeNumeros", e.target.value)
+                  atualizarConfiguracao(
+                    "quantidadeNumeros",
+                    e.target.value
+                  )
                 }
                 style={estiloCampo}
               />
@@ -860,7 +1159,10 @@ function Admin() {
                 step="1"
                 value={configuracao.prazoReserva}
                 onChange={(e) =>
-                  atualizarConfiguracao("prazoReserva", e.target.value)
+                  atualizarConfiguracao(
+                    "prazoReserva",
+                    e.target.value
+                  )
                 }
                 style={estiloCampo}
               />
@@ -882,7 +1184,7 @@ function Admin() {
         )}
       </section>
 
-      {/* Cadastro dos números */}
+      {/* CADASTRO DOS NÚMEROS */}
       <section
         style={{
           marginTop: 35,
@@ -903,10 +1205,13 @@ function Admin() {
           disabled={carregando}
           style={estiloBotao}
         >
-          {carregando ? "CADASTRANDO..." : "CRIAR 200 NÚMEROS"}
+          {carregando
+            ? "CADASTRANDO..."
+            : "CRIAR 200 NÚMEROS"}
         </button>
       </section>
 
+      {/* MENSAGEM */}
       {mensagem && (
         <p
           role="status"
@@ -916,7 +1221,7 @@ function Admin() {
         </p>
       )}
 
-      {/* Gerenciamento dos números */}
+      {/* GERENCIAMENTO DOS NÚMEROS */}
       <section style={{ marginTop: 40 }}>
         <h2>Gerenciar números</h2>
 
@@ -927,7 +1232,8 @@ function Admin() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(125px, 1fr))",
+            gridTemplateColumns:
+              "repeat(auto-fill, minmax(125px, 1fr))",
             gap: 12,
             maxWidth: 1000
           }}

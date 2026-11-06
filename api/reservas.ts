@@ -1,3 +1,4 @@
+
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { cert, getApps, initializeApp } from "firebase-admin/app";
@@ -11,6 +12,10 @@ import {
 
 const UID_ADMIN = "aP2oK0J58GWViujxUwIvf6jx0dk1";
 
+// =========================================
+// CONEXÃO COM FIREBASE ADMIN
+// =========================================
+
 function obterFirebaseAdmin() {
   const credencialJSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
@@ -18,7 +23,20 @@ function obterFirebaseAdmin() {
     throw new Error("CREDENCIAL_NAO_CONFIGURADA");
   }
 
-  const credencial = JSON.parse(credencialJSON);
+  let credencial;
+
+  try {
+    let textoCredencial = credencialJSON.trim();
+
+    if (/^"type"\s*:/.test(textoCredencial)) {
+      textoCredencial = "{" + textoCredencial;
+    }
+
+    credencial = JSON.parse(textoCredencial);
+  } catch (erro) {
+    console.error("Falha ao interpretar credencial:", erro);
+    throw new Error("CREDENCIAL_JSON_INVALIDO");
+  }
 
   const app =
     getApps().length > 0
@@ -32,6 +50,10 @@ function obterFirebaseAdmin() {
     db: getFirestore(app)
   };
 }
+
+// =========================================
+// API DE RESERVAS
+// =========================================
 
 export default async function handler(
   req: VercelRequest,
@@ -428,6 +450,7 @@ export default async function handler(
       mensagem: "Solicitação demonstrativa registrada.",
       reserva: resultado
     });
+
   } catch (erro: unknown) {
     console.error("Erro na API de reservas:", erro);
 
@@ -474,6 +497,12 @@ export default async function handler(
     if (codigoErro === "CREDENCIAL_NAO_CONFIGURADA") {
       return res.status(500).json({
         erro: "A credencial do servidor não está configurada."
+      });
+    }
+
+    if (codigoErro === "CREDENCIAL_JSON_INVALIDO") {
+      return res.status(500).json({
+        erro: "A credencial do servidor está em formato inválido."
       });
     }
 

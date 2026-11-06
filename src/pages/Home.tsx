@@ -1,20 +1,13 @@
+
 import { useEffect, useState } from "react";
 import type { FormEvent, CSSProperties } from "react";
-
-import {
-  collection,
-  onSnapshot,
-  query,
-  orderBy,
-  doc
-} from "firebase/firestore";
 
 import {
   onAuthStateChanged,
   signInAnonymously
 } from "firebase/auth";
 
-import { auth, db } from "../firebase";
+import { auth } from "../firebase";
 import "./Home.css";
 
 type StatusNumero = "disponivel" | "reservado" | "vendido";
@@ -52,27 +45,65 @@ function Home() {
     return () => cancelar();
   }, []);
 
-  // Carrega os dados da campanha
+  // Carrega números e configurações pela API
   useEffect(() => {
-    const referencia = doc(db, "configuracoes", "campanha");
+    let ativo = true;
 
-    const cancelar = onSnapshot(
-      referencia,
-      (documento) => {
-        if (documento.exists()) {
-          const dados = documento.data();
+    async function carregarDados() {
+      try {
+        setCarregando(true);
+        setErroBanco("");
 
-          setChavePix(dados.chavePix ?? "");
-          setNomeTitular(dados.nomeTitular ?? "");
-          setDataSorteio(dados.dataSorteio ?? "");
+        const resposta = await fetch("/api/status", {
+          cache: "no-store"
+        });
+
+        const resultado = await resposta.json();
+
+        if (!resposta.ok) {
+          throw new Error(
+            resultado.erro || "Não foi possível carregar os dados."
+          );
         }
-      },
-      (erro) => {
-        console.error("Erro ao carregar configurações:", erro);
-      }
-    );
 
-    return () => cancelar();
+        if (!ativo) return;
+
+        const novosStatus = resultado.numeros ?? {};
+
+        setStatusNumeros(novosStatus);
+
+        setChavePix(resultado.configuracao?.chavePix ?? "");
+        setNomeTitular(resultado.configuracao?.nomeTitular ?? "");
+        setDataSorteio(resultado.configuracao?.dataSorteio ?? "");
+
+        setSelecionados((atuais) =>
+          atuais.filter(
+            (numero) => novosStatus[numero] === "disponivel"
+          )
+        );
+
+      } catch (erro) {
+        console.error("Erro ao carregar dados:", erro);
+
+        if (ativo) {
+          setErroBanco(
+            erro instanceof Error
+              ? erro.message
+              : "Não foi possível carregar os números."
+          );
+        }
+      } finally {
+        if (ativo) {
+          setCarregando(false);
+        }
+      }
+    }
+
+    carregarDados();
+
+    return () => {
+      ativo = false;
+    };
   }, []);
 
   // Copia a chave PIX
@@ -89,49 +120,6 @@ function Home() {
 
     setTimeout(() => setMensagemCopia(""), 2500);
   }
-
-  // Atualização dos números em tempo real
-  useEffect(() => {
-    const consulta = query(
-      collection(db, "numeros"),
-      orderBy("numero")
-    );
-
-    const cancelar = onSnapshot(
-      consulta,
-      (snapshot) => {
-        const status: Record<number, StatusNumero> = {};
-
-        snapshot.forEach((documento) => {
-          const dados = documento.data();
-
-          if (
-            typeof dados.numero === "number" &&
-            ["disponivel", "reservado", "vendido"].includes(dados.status)
-          ) {
-            status[dados.numero] = dados.status;
-          }
-        });
-
-        setStatusNumeros(status);
-
-        // Remove da seleção os números que ficaram indisponíveis
-        setSelecionados((atuais) =>
-          atuais.filter((numero) => status[numero] === "disponivel")
-        );
-
-        setCarregando(false);
-        setErroBanco("");
-      },
-      (erro) => {
-        console.error("Erro ao carregar números:", erro);
-        setErroBanco("Não foi possível carregar os números.");
-        setCarregando(false);
-      }
-    );
-
-    return () => cancelar();
-  }, []);
 
   function selecionarNumero(numero: number) {
     if (statusNumeros[numero] !== "disponivel") return;
@@ -190,7 +178,6 @@ function Home() {
       return;
     }
 
-    // Confere novamente se todos os números continuam disponíveis
     const todosDisponiveis = numerosSelecionados.every(
       (numero) => statusNumeros[numero] === "disponivel"
     );
@@ -226,7 +213,6 @@ function Home() {
 
     setEnviandoSolicitacao(true);
 
-    // Abre uma janela vazia durante o clique para evitar bloqueio de pop-up
     const janelaWhatsApp = window.open("about:blank", "_blank");
 
     if (janelaWhatsApp) {
@@ -234,13 +220,11 @@ function Home() {
     }
 
     try {
-      // Garante que o visitante esteja autenticado
       const usuario =
         auth.currentUser ?? (await signInAnonymously(auth)).user;
 
       const token = await usuario.getIdToken();
 
-      // Envia a solicitação para a API segura
       const resposta = await fetch("/api/reservas", {
         method: "POST",
         headers: {
@@ -254,7 +238,21 @@ function Home() {
         })
       });
 
-      const resultado = await resposta.json();
+      const textoResposta = await resposta.text();
+
+      let resultado: {
+        erro?: string;
+        mensagem?: string;
+        sucesso?: boolean;
+      } = {};
+
+      try {
+        resultado = textoResposta ? JSON.parse(textoResposta) : {};
+      } catch {
+        throw new Error(
+          textoResposta || "O servidor retornou uma resposta inválida."
+        );
+      }
 
       if (!resposta.ok) {
         throw new Error(
@@ -262,7 +260,6 @@ function Home() {
         );
       }
 
-      // Só abre o WhatsApp depois que a API confirma o registro
       if (janelaWhatsApp && !janelaWhatsApp.closed) {
         janelaWhatsApp.location.href = link;
       } else {
@@ -372,8 +369,13 @@ function Home() {
           <span><i className="unavailable" /> Indisponível</span>
         </div>
 
+        <p style={{ color: "#aaa", fontSize: 13 }}>
+          A disponibilidade é confirmada novamente no momento do registro
+          da solicitação.
+        </p>
+
         {carregando && <p>Carregando números...</p>}
-        {erroBanco && <p>{erroBanco}</p>}
+        {erroBanco && <p role="alert">{erroBanco}</p>}
 
         <div className="numbers-grid">
           {numeros.map((numero) => {
@@ -429,7 +431,12 @@ function Home() {
 
           <button
             className="gold-button"
-            disabled={selecionados.length === 0 || enviandoSolicitacao}
+            disabled={
+              selecionados.length === 0 ||
+              enviandoSolicitacao ||
+              carregando ||
+              !!erroBanco
+            }
             onClick={() => {
               setErroFormulario("");
               setMostrarCadastro(true);
@@ -446,7 +453,7 @@ function Home() {
         </div>
       </section>
 
-      {/* DADOS DO PARTICIPANTE E PIX DEMONSTRATIVO */}
+      {/* DADOS DO PARTICIPANTE E PIX */}
       {mostrarCadastro && (
         <section className="numbers-section" id="cadastro">
           <span className="eyebrow">QUASE LÁ!</span>
@@ -560,7 +567,7 @@ function Home() {
               <button
                 type="submit"
                 className="gold-button"
-                disabled={enviandoSolicitacao}
+                disabled={enviandoSolicitacao || !!erroBanco}
               >
                 {enviandoSolicitacao
                   ? "REGISTRANDO SOLICITAÇÃO..."
@@ -577,7 +584,7 @@ function Home() {
               </button>
             </form>
 
-            {/* PIX DEMONSTRATIVO */}
+            {/* PIX */}
             <div
               style={{
                 background: "#181818",
