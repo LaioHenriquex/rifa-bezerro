@@ -35,7 +35,7 @@ export async function liberarReservasExpiradas(db: Firestore) {
           (numero: unknown) =>
             Number.isInteger(numero) &&
             Number(numero) >= 1 &&
-            Number(numero) <= 200
+            Number(numero) <= 300
         )
         .map((numero: number) =>
           db.collection("numeros").doc(String(numero).padStart(3, "0"))

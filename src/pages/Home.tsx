@@ -29,7 +29,7 @@ function Home() {
   const [dataSorteio, setDataSorteio] = useState("");
   const [mensagemCopia, setMensagemCopia] = useState("");
 
-  const numeros = Array.from({ length: 200 }, (_, i) => i + 1);
+  const numeros = Array.from({ length: 300 }, (_, i) => i + 1);
 
   // Autenticação anônima
   useEffect(() => {

@@ -78,7 +78,7 @@ export default async function handler(
       if (
         Number.isInteger(numero) &&
         numero >= 1 &&
-        numero <= 200 &&
+        numero <= 300 &&
         ["disponivel", "reservado", "vendido"].includes(dados.status)
       ) {
         numeros[numero] = dados.status;

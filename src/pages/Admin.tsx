@@ -48,7 +48,7 @@ const configuracaoInicial: Configuracao = {
   chavePix: "",
   nomeTitular: "",
   valorNumero: 20,
-  quantidadeNumeros: 200,
+  quantidadeNumeros: 300,
   prazoReserva: 30,
   dataSorteio: ""
 };
@@ -92,7 +92,7 @@ function Admin() {
     }
   }
 
-  // Carrega os dados guardados no navegador
+  // CARREGA DADOS GUARDADOS NO NAVEGADOR
   useEffect(() => {
     try {
       const cache = localStorage.getItem(CHAVE_CACHE);
@@ -107,7 +107,8 @@ function Admin() {
         if (dados.configuracao) {
           setConfiguracao({
             ...configuracaoInicial,
-            ...dados.configuracao
+            ...dados.configuracao,
+            quantidadeNumeros: 300
           });
         }
 
@@ -136,7 +137,7 @@ function Admin() {
     }
   }, []);
 
-  // Salva automaticamente as alterações no cache local
+  // SALVA AUTOMATICAMENTE NO CACHE
   useEffect(() => {
     if (cacheInicializado) {
       salvarCache();
@@ -206,10 +207,15 @@ function Admin() {
             chavePix: dados.chavePix ?? "",
             nomeTitular: dados.nomeTitular ?? "",
             valorNumero: dados.valorNumero ?? 20,
-            quantidadeNumeros: dados.quantidadeNumeros ?? 200,
+            quantidadeNumeros: 300,
             prazoReserva: dados.prazoReserva ?? 30,
             dataSorteio: dados.dataSorteio ?? ""
           });
+        } else {
+          setConfiguracao((atual) => ({
+            ...atual,
+            quantidadeNumeros: 300
+          }));
         }
 
         setCarregandoConfig(false);
@@ -277,24 +283,12 @@ function Admin() {
     }
   }
 
-  // CADASTRO DOS NÚMEROS
+  // CADASTRO DOS 300 NÚMEROS
   async function criarNumeros() {
     try {
       setCarregando(true);
       setMensagem("");
 
-      if (numeros.length === 200) {
-        setMensagem(
-          "Os 200 números já estão carregados. Nenhum documento foi alterado."
-        );
-        return;
-      }
-
-      const batch = writeBatch(db);
-      let criados = 0;
-
-      // Busca os documentos existentes em uma única consulta.
-      // Os números já cadastrados são preservados.
       const existentesSnapshot = await getDocs(
         collection(db, "numeros")
       );
@@ -303,33 +297,49 @@ function Admin() {
         existentesSnapshot.docs.map((documento) => documento.id)
       );
 
-      for (let numero = 1; numero <= 200; numero++) {
+      const faltantes: number[] = [];
+
+      for (let numero = 1; numero <= 300; numero++) {
         const id = String(numero).padStart(3, "0");
 
         if (!existentes.has(id)) {
-          batch.set(doc(db, "numeros", id), {
-            numero,
-            status: "disponivel",
-            reservaId: null,
-            participanteId: null,
-            criadoEm: new Date()
-          });
-
-          criados++;
+          faltantes.push(numero);
         }
       }
 
-      if (criados > 0) {
-        await batch.commit();
+      if (faltantes.length === 0) {
+        setMensagem(
+          "Os 300 números já estão cadastrados. Nenhum documento foi alterado."
+        );
+        return;
       }
 
-      setMensagem(
-        `${criados} números cadastrados. Os existentes foram preservados.`
-      );
+      // Firestore permite até 500 operações por batch.
+      const batch = writeBatch(db);
 
-      // Não recarrega automaticamente os 200 documentos.
+      let criados = 0;
+
+      for (const numero of faltantes) {
+        const id = String(numero).padStart(3, "0");
+
+        batch.set(doc(db, "numeros", id), {
+          numero,
+          status: "disponivel",
+          reservaId: null,
+          participanteId: null,
+          criadoEm: new Date()
+        });
+
+        criados++;
+      }
+
+      await batch.commit();
+
+      setMensagem(
+        `${criados} números cadastrados. Os números existentes foram preservados.`
+      );
     } catch (erro) {
-      console.error(erro);
+      console.error("Erro ao cadastrar números:", erro);
 
       setMensagem(
         "Erro ao cadastrar números. Verifique a disponibilidade do Firebase."
@@ -364,9 +374,7 @@ function Admin() {
     } catch (erro) {
       console.error(erro);
 
-      setMensagem(
-        `Erro ao atualizar o número ${id}.`
-      );
+      setMensagem(`Erro ao atualizar o número ${id}.`);
     } finally {
       setAtualizando(null);
     }
@@ -407,7 +415,7 @@ function Admin() {
         !Number.isFinite(configuracao.valorNumero) ||
         configuracao.valorNumero <= 0 ||
         !Number.isInteger(configuracao.quantidadeNumeros) ||
-        configuracao.quantidadeNumeros <= 0 ||
+        configuracao.quantidadeNumeros !== 300 ||
         !Number.isInteger(configuracao.prazoReserva) ||
         configuracao.prazoReserva <= 0
       ) {
@@ -421,12 +429,17 @@ function Admin() {
           chavePix: configuracao.chavePix.trim(),
           nomeTitular: configuracao.nomeTitular.trim(),
           valorNumero: configuracao.valorNumero,
-          quantidadeNumeros: configuracao.quantidadeNumeros,
+          quantidadeNumeros: 300,
           prazoReserva: configuracao.prazoReserva,
           dataSorteio: configuracao.dataSorteio
         },
         { merge: true }
       );
+
+      setConfiguracao((atual) => ({
+        ...atual,
+        quantidadeNumeros: 300
+      }));
 
       setMensagem("Configurações salvas com sucesso!");
     } catch (erro) {
@@ -525,7 +538,7 @@ function Admin() {
         );
       }
 
-      // Atualiza o cache local sem fazer novas leituras.
+      // ATUALIZA O CACHE LOCAL
       if (acao === "confirmar") {
         setReservas((atuais) =>
           atuais.map((item) =>
@@ -1038,7 +1051,8 @@ function Admin() {
           </div>
         )}
       </section>
-            {/* CONFIGURAÇÕES */}
+
+      {/* CONFIGURAÇÕES */}
       <section
         style={{
           marginTop: 35,
@@ -1137,17 +1151,17 @@ function Admin() {
 
               <input
                 type="number"
-                min="1"
+                min="300"
+                max="300"
                 step="1"
-                value={configuracao.quantidadeNumeros}
-                onChange={(e) =>
-                  atualizarConfiguracao(
-                    "quantidadeNumeros",
-                    e.target.value
-                  )
-                }
+                value={300}
+                disabled
                 style={estiloCampo}
               />
+
+              <small style={{ color: "#aaa" }}>
+                Esta campanha está configurada com 300 números.
+              </small>
             </label>
 
             <label>
@@ -1197,17 +1211,20 @@ function Admin() {
         <h2>Cadastro dos números</h2>
 
         <p style={{ margin: "15px 0", color: "#ccc" }}>
-          Cadastre automaticamente os 200 números da campanha.
+          Cadastre automaticamente os 300 números da campanha.
         </p>
 
         <button
           onClick={criarNumeros}
           disabled={carregando}
-          style={estiloBotao}
+          style={{
+            ...estiloBotao,
+            opacity: carregando ? 0.6 : 1
+          }}
         >
           {carregando
             ? "CADASTRANDO..."
-            : "CRIAR 200 NÚMEROS"}
+            : "CRIAR 300 NÚMEROS"}
         </button>
       </section>
 

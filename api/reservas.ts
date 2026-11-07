@@ -1,4 +1,3 @@
-
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 import { cert, getApps, initializeApp } from "firebase-admin/app";
@@ -144,7 +143,7 @@ export default async function handler(
             if (
               !Number.isInteger(numero) ||
               numero < 1 ||
-              numero > 200
+              numero > 300
             ) {
               throw new Error("NUMERO_INVALIDO");
             }
@@ -218,7 +217,7 @@ export default async function handler(
           if (
             !Number.isInteger(numero) ||
             numero < 1 ||
-            numero > 200
+            numero > 300
           ) {
             throw new Error("NUMERO_INVALIDO");
           }
@@ -345,7 +344,7 @@ export default async function handler(
           typeof numero !== "number" ||
           !Number.isInteger(numero) ||
           numero < 1 ||
-          numero > 200
+          numero > 300
       ) ||
       new Set(numeros).size !== numeros.length
     ) {
